@@ -83,16 +83,15 @@ async function compressReviewImage(file) {
   return canvas.toDataURL('image/jpeg', 0.72)
 }
 
-function FilterSelect({ label, name, defaultValue, options }) {
+function FilterSelect({ label, name, defaultValue, options, open, onOpen }) {
   const [value, setValue] = useState(defaultValue)
-  const [open, setOpen] = useState(false)
   const selected = options.find((option) => option.value === value) ?? options[0]
 
   return (
     <div className="field filter-field--select custom-select">
       <span>{label}</span>
       <input type="hidden" name={name} value={value} />
-      <button type="button" className="custom-select__button" onClick={() => setOpen((current) => !current)}>
+      <button type="button" className="custom-select__button" onClick={() => onOpen()}>
         {selected.label}
       </button>
       {open ? (
@@ -104,7 +103,7 @@ function FilterSelect({ label, name, defaultValue, options }) {
               className={option.value === value ? 'custom-select__option custom-select__option--active' : 'custom-select__option'}
               onClick={() => {
                 setValue(option.value)
-                setOpen(false)
+                onOpen(false)
               }}
             >
               {option.label}
@@ -366,6 +365,7 @@ export function PlacesPage() {
     items: [],
   })
   const [showFilters, setShowFilters] = useState(false)
+  const [openFilter, setOpenFilter] = useState('')
   const hasAdvancedFilters =
     filters.category !== 'all' ||
     filters.accessType !== 'all' ||
@@ -463,6 +463,7 @@ export function PlacesPage() {
 
     router.push(`/places${next.toString() ? `?${next.toString()}` : ''}`)
     setShowFilters(false)
+    setOpenFilter('')
   }
 
   function applySearch(event) {
@@ -476,6 +477,11 @@ export function PlacesPage() {
   function resetFilters() {
     router.push('/places')
     setShowFilters(false)
+    setOpenFilter('')
+  }
+
+  function toggleFilter(name) {
+    setOpenFilter((current) => (current === name ? '' : name))
   }
 
   return (
@@ -525,6 +531,8 @@ export function PlacesPage() {
                   label="Kecepatan WiFi"
                   name="speed"
                   defaultValue={filters.speed}
+                  open={openFilter === 'speed'}
+                  onOpen={(nextOpen = true) => (nextOpen ? toggleFilter('speed') : setOpenFilter(''))}
                   options={[
                     { value: 'all', label: 'Semua level' },
                     { value: 'steady', label: 'Stabil (20+ Mbps)' },
@@ -537,6 +545,8 @@ export function PlacesPage() {
                   label="Jenis akses"
                   name="accessType"
                   defaultValue={filters.accessType}
+                  open={openFilter === 'accessType'}
+                  onOpen={(nextOpen = true) => (nextOpen ? toggleFilter('accessType') : setOpenFilter(''))}
                   options={[
                     { value: 'all', label: 'Semua jenis akses' },
                     ...accessTypeOptions.map((item) => ({ value: item, label: localizeLabel(item) })),
@@ -547,6 +557,8 @@ export function PlacesPage() {
                   label="Kategori"
                   name="category"
                   defaultValue={filters.category}
+                  open={openFilter === 'category'}
+                  onOpen={(nextOpen = true) => (nextOpen ? toggleFilter('category') : setOpenFilter(''))}
                   options={[
                     { value: 'all', label: 'Semua kategori' },
                     ...categoryOptions.map((item) => ({ value: item, label: localizeLabel(item) })),
