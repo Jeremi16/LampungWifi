@@ -1,0 +1,35 @@
+{
+  "name": "balamwifi",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k \"node --watch server/index.js\" \"next dev\"",
+    "dev:client": "next dev",
+    "dev:server": "node --watch server/index.js",
+    "build": "next build",
+    "db:seed": "node server/seed.js",
+    "lint": "eslint .",
+    "preview": "next start",
+    "start": "node server/index.js"
+  },
+  "dependencies": {
+    "concurrently": "^9.2.1",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "pg": "^8.20.0",
+    "react": "^19.2.5",
+    "next": "^16.0.8",
+    "react-dom": "^19.2.5",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "eslint": "^10.2.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.5.0"
+  }
+}
