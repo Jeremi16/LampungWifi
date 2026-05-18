@@ -396,6 +396,40 @@ function createPostgresStore() {
     ssl: requiresSsl ? { rejectUnauthorized: false } : false,
   })
 
+  async function refreshPlaceMetrics(placeId) {
+    await pool.query(
+      `
+        INSERT INTO place_metrics (
+          place_id,
+          avg_speed_rating,
+          avg_comfort_rating,
+          avg_rating,
+          review_count,
+          updated_at
+        )
+        SELECT
+          p.id AS place_id,
+          COALESCE(AVG(r.rating_speed), 0)::numeric(10, 2) AS avg_speed_rating,
+          COALESCE(AVG(r.rating_comfort), 0)::numeric(10, 2) AS avg_comfort_rating,
+          COALESCE(AVG((r.rating_speed + r.rating_comfort) / 2.0), 0)::numeric(10, 2) AS avg_rating,
+          COUNT(r.id)::int AS review_count,
+          NOW() AS updated_at
+        FROM places p
+        LEFT JOIN reviews r ON r.place_id = p.id
+        WHERE p.id = $1
+        GROUP BY p.id
+        ON CONFLICT (place_id) DO UPDATE
+        SET
+          avg_speed_rating = EXCLUDED.avg_speed_rating,
+          avg_comfort_rating = EXCLUDED.avg_comfort_rating,
+          avg_rating = EXCLUDED.avg_rating,
+          review_count = EXCLUDED.review_count,
+          updated_at = NOW()
+      `,
+      [placeId],
+    )
+  }
+
   async function aggregatePlace(whereSql, params, limit) {
     const boundedParams = [...params]
     boundedParams.push(limit)
@@ -423,8 +457,11 @@ function createPostgresStore() {
   return {
     mode: 'postgres',
     async initialize() {
+      if (process.env.DB_SCHEMA_SYNC === 'false') {
+        return
+      }
+
       await pool.query(schemaSql)
-      await pool.query('REFRESH MATERIALIZED VIEW place_metrics')
     },
     async listPlaces(filters = {}) {
       const params = []
@@ -452,32 +489,33 @@ function createPostgresStore() {
         return null
       }
 
-      const reviewsResult = await pool.query(
-        `
-          SELECT id, place_id, author_name, author_email, review_title, rating_speed, rating_comfort, image_url, comment, created_at
-          FROM reviews
-          WHERE place_id = $1
-          ORDER BY created_at DESC
-        `,
-        [placeId],
-      )
-
-      const relatedResult = await pool.query(
-        `
-          SELECT
-            ${placeListColumns},
-            COALESCE(m.avg_speed_rating, 0)::numeric(10, 2) AS avg_speed_rating,
-            COALESCE(m.avg_comfort_rating, 0)::numeric(10, 2) AS avg_comfort_rating,
-            COALESCE(m.avg_rating, 0)::numeric(10, 2) AS avg_rating,
-            COALESCE(m.review_count, 0)::int AS review_count
-          FROM places p
-          LEFT JOIN place_metrics m ON m.place_id = p.id
-          WHERE p.status = 'approved' AND p.id <> $1
-          ORDER BY COALESCE(m.avg_rating, 0) DESC, p.wifi_speed_mbps DESC NULLS LAST
-          LIMIT 3
-        `,
-        [placeId],
-      )
+      const [reviewsResult, relatedResult] = await Promise.all([
+        pool.query(
+          `
+            SELECT id, place_id, author_name, author_email, review_title, rating_speed, rating_comfort, image_url, comment, created_at
+            FROM reviews
+            WHERE place_id = $1
+            ORDER BY created_at DESC
+          `,
+          [placeId],
+        ),
+        pool.query(
+          `
+            SELECT
+              ${placeListColumns},
+              COALESCE(m.avg_speed_rating, 0)::numeric(10, 2) AS avg_speed_rating,
+              COALESCE(m.avg_comfort_rating, 0)::numeric(10, 2) AS avg_comfort_rating,
+              COALESCE(m.avg_rating, 0)::numeric(10, 2) AS avg_rating,
+              COALESCE(m.review_count, 0)::int AS review_count
+            FROM places p
+            LEFT JOIN place_metrics m ON m.place_id = p.id
+            WHERE p.status = 'approved' AND p.id <> $1
+            ORDER BY COALESCE(m.avg_rating, 0) DESC, p.wifi_speed_mbps DESC NULLS LAST
+            LIMIT 3
+          `,
+          [placeId],
+        ),
+      ])
 
       return {
         ...mapRow(placeResult.rows[0]),
@@ -532,7 +570,7 @@ function createPostgresStore() {
           normalized.submitter_email,
         ],
       )
-      await pool.query('REFRESH MATERIALIZED VIEW place_metrics')
+      await refreshPlaceMetrics(result.rows[0].id)
 
       return mapRow({
         ...result.rows[0],
@@ -567,7 +605,7 @@ function createPostgresStore() {
           normalized.comment,
         ],
       )
-      await pool.query('REFRESH MATERIALIZED VIEW place_metrics')
+      await refreshPlaceMetrics(normalized.place_id)
 
       return result.rows[0]
     },
@@ -623,11 +661,11 @@ function createPostgresStore() {
         `,
         [placeId, status],
       )
-      await pool.query('REFRESH MATERIALIZED VIEW place_metrics')
-
       if (!result.rows.length) {
         return null
       }
+
+      await refreshPlaceMetrics(placeId)
 
       return mapRow({
         ...result.rows[0],

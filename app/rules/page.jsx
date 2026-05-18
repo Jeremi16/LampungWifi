@@ -1,4 +1,4 @@
-import { RulesPage } from '../../src/App.jsx'
+import { RulesPage } from '../../src/views/RulesPage.jsx'
 
 export default function Page() {
   return <RulesPage />

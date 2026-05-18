@@ -6,21 +6,25 @@
   "scripts": {
     "dev": "concurrently -k \"node --watch server/index.js\" \"next dev\"",
     "dev:client": "next dev",
-    "dev:server": "node --watch server/index.js",
+    "dev:api": "node --watch server/index.js",
+    "dev:server": "npm run dev:api",
     "build": "next build",
     "db:seed": "node server/seed.js",
     "lint": "eslint .",
-    "preview": "next start",
-    "start": "node server/index.js"
+    "preview": "npm run start",
+    "start": "concurrently -k \"node server/index.js\" \"next start\"",
+    "start:api": "node server/index.js",
+    "start:next": "next start"
   },
   "dependencies": {
     "concurrently": "^9.2.1",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "google-auth-library": "^10.5.0",
+    "next": "^16.0.8",
     "pg": "^8.20.0",
     "react": "^19.2.5",
-    "next": "^16.0.8",
     "react-dom": "^19.2.5",
     "zod": "^4.4.3"
   },

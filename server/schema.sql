@@ -43,6 +43,9 @@ CREATE TABLE IF NOT EXISTS places (
 
 CREATE INDEX IF NOT EXISTS idx_places_status ON places(status);
 CREATE INDEX IF NOT EXISTS idx_places_category ON places(category);
+CREATE INDEX IF NOT EXISTS idx_places_status_created_at ON places(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_places_public_filters ON places(status, wifi_available, category, wifi_access_type);
+CREATE INDEX IF NOT EXISTS idx_places_public_speed ON places(status, wifi_available, wifi_speed_mbps DESC NULLS LAST);
 CREATE INDEX IF NOT EXISTS idx_places_search ON places USING GIN (
   to_tsvector('simple', COALESCE(name, '') || ' ' || COALESCE(address, '') || ' ' || COALESCE(district, '') || ' ' || COALESCE(category, ''))
 );
@@ -63,19 +66,56 @@ CREATE TABLE IF NOT EXISTS reviews (
 );
 
 CREATE INDEX IF NOT EXISTS idx_reviews_place_id ON reviews(place_id);
+CREATE INDEX IF NOT EXISTS idx_reviews_place_created_at ON reviews(place_id, created_at DESC);
 
-CREATE MATERIALIZED VIEW IF NOT EXISTS place_metrics AS
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM pg_matviews
+    WHERE schemaname = CURRENT_SCHEMA()
+      AND matviewname = 'place_metrics'
+  ) THEN
+    DROP MATERIALIZED VIEW place_metrics;
+  END IF;
+END $$;
+
+CREATE TABLE IF NOT EXISTS place_metrics (
+  place_id INTEGER PRIMARY KEY REFERENCES places(id) ON DELETE CASCADE,
+  avg_speed_rating NUMERIC(10, 2) NOT NULL DEFAULT 0,
+  avg_comfort_rating NUMERIC(10, 2) NOT NULL DEFAULT 0,
+  avg_rating NUMERIC(10, 2) NOT NULL DEFAULT 0,
+  review_count INTEGER NOT NULL DEFAULT 0,
+  updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_place_metrics_featured ON place_metrics(avg_rating DESC, review_count DESC, place_id);
+
+INSERT INTO place_metrics (
+  place_id,
+  avg_speed_rating,
+  avg_comfort_rating,
+  avg_rating,
+  review_count,
+  updated_at
+)
 SELECT
   p.id AS place_id,
   COALESCE(AVG(r.rating_speed), 0)::numeric(10, 2) AS avg_speed_rating,
   COALESCE(AVG(r.rating_comfort), 0)::numeric(10, 2) AS avg_comfort_rating,
   COALESCE(AVG((r.rating_speed + r.rating_comfort) / 2.0), 0)::numeric(10, 2) AS avg_rating,
-  COUNT(r.id)::int AS review_count
+  COUNT(r.id)::int AS review_count,
+  NOW() AS updated_at
 FROM places p
 LEFT JOIN reviews r ON r.place_id = p.id
-GROUP BY p.id;
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_place_metrics_place_id ON place_metrics(place_id);
+GROUP BY p.id
+ON CONFLICT (place_id) DO UPDATE
+SET
+  avg_speed_rating = EXCLUDED.avg_speed_rating,
+  avg_comfort_rating = EXCLUDED.avg_comfort_rating,
+  avg_rating = EXCLUDED.avg_rating,
+  review_count = EXCLUDED.review_count,
+  updated_at = NOW();
 
 ALTER TABLE reviews ADD COLUMN IF NOT EXISTS review_title TEXT NOT NULL DEFAULT 'Ulasan pengunjung';
 ALTER TABLE reviews ADD COLUMN IF NOT EXISTS image_url TEXT;

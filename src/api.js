@@ -43,22 +43,28 @@ export function getPlace(placeId) {
   return request(`/places/${placeId}`)
 }
 
-export function createPlace(body) {
+export function createPlace(body, credential) {
   return request('/places', {
     method: 'POST',
+    headers: bearerHeaders(credential),
     body: JSON.stringify(body),
   })
 }
 
-export function createReview(body) {
+export function createReview(body, credential) {
   return request('/reviews', {
     method: 'POST',
+    headers: bearerHeaders(credential),
     body: JSON.stringify(body),
   })
+}
+
+function bearerHeaders(token) {
+  return token ? { Authorization: `Bearer ${token}` } : undefined
 }
 
 function adminHeaders(token) {
-  return token ? { Authorization: `Bearer ${token}` } : undefined
+  return bearerHeaders(token)
 }
 
 export function getAdminSubmissions(token) {

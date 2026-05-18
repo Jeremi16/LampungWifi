@@ -1,4 +1,4 @@
-import { AdminPage } from '../../src/App.jsx'
+import { AdminPage } from '../../src/views/AdminPage.jsx'
 
 export default function Page() {
   return <AdminPage />

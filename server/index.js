@@ -1,9 +1,7 @@
-import { existsSync } from 'node:fs'
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import cors from 'cors'
 import dotenv from 'dotenv'
 import express from 'express'
+import { OAuth2Client } from 'google-auth-library'
 import { z } from 'zod'
 import { createStore } from './db.js'
 
@@ -11,14 +9,11 @@ dotenv.config()
 
 const app = express()
 const store = await createStore()
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = path.dirname(__filename)
-const rootDir = path.resolve(__dirname, '..')
-const distDir = path.join(rootDir, 'dist')
-const distIndex = path.join(distDir, 'index.html')
 const port = Number(process.env.PORT ?? 8787)
 const isProduction = process.env.NODE_ENV === 'production'
 const adminToken = process.env.ADMIN_TOKEN?.trim()
+const googleClientId = process.env.GOOGLE_CLIENT_ID?.trim() || process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID?.trim()
+const googleAuthClient = googleClientId ? new OAuth2Client(googleClientId) : null
 const defaultCorsOrigin = isProduction ? false : true
 
 const categoryOptions = [
@@ -153,12 +148,53 @@ function requireAdmin(request, response, next) {
   next()
 }
 
+function readBearerToken(request) {
+  const authHeader = request.get('authorization') ?? ''
+  return authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : ''
+}
+
+async function requireGoogleUser(request, response, next) {
+  if (!googleAuthClient || !googleClientId) {
+    response.status(503).json({ error: 'Google login is not configured on the API server' })
+    return
+  }
+
+  const token = readBearerToken(request)
+
+  if (!token) {
+    response.status(401).json({ error: 'Google login is required' })
+    return
+  }
+
+  try {
+    const ticket = await googleAuthClient.verifyIdToken({
+      idToken: token,
+      audience: googleClientId,
+    })
+    const payload = ticket.getPayload()
+
+    if (!payload?.email || payload.email_verified === false) {
+      response.status(401).json({ error: 'Google account email is not verified' })
+      return
+    }
+
+    request.googleUser = {
+      name: payload.name || payload.email,
+      email: payload.email,
+      picture: payload.picture,
+    }
+    next()
+  } catch {
+    response.status(401).json({ error: 'Invalid Google login token' })
+  }
+}
+
 app.use(
   cors({
     origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',') : defaultCorsOrigin,
   }),
 )
-app.use(express.json())
+app.use(express.json({ limit: '1mb' }))
 
 app.get('/api/health', async (_request, response) => {
   response.json({
@@ -215,9 +251,13 @@ app.get('/api/places/:id', async (request, response, next) => {
   }
 })
 
-app.post('/api/places', async (request, response, next) => {
+app.post('/api/places', requireGoogleUser, async (request, response, next) => {
   try {
-    const parsed = parseJson(placeSubmissionSchema, request.body)
+    const parsed = parseJson(placeSubmissionSchema, {
+      ...request.body,
+      submitterName: request.googleUser.name,
+      submitterEmail: request.googleUser.email,
+    })
     const submission = await store.createPlaceSubmission(parsed)
 
     response.status(201).json({
@@ -229,9 +269,13 @@ app.post('/api/places', async (request, response, next) => {
   }
 })
 
-app.post('/api/reviews', async (request, response, next) => {
+app.post('/api/reviews', requireGoogleUser, async (request, response, next) => {
   try {
-    const parsed = reviewSchema.parse(request.body)
+    const parsed = reviewSchema.parse({
+      ...request.body,
+      authorName: request.googleUser.name,
+      authorEmail: request.googleUser.email,
+    })
     const review = await store.createReview(parsed)
 
     response.status(201).json({
@@ -275,24 +319,6 @@ app.patch('/api/admin/submissions/:id', requireAdmin, async (request, response, 
     next(error)
   }
 })
-
-if (existsSync(distDir)) {
-  app.use(express.static(distDir))
-
-  app.use((request, response, next) => {
-    if (request.path.startsWith('/api')) {
-      next()
-      return
-    }
-
-    if (existsSync(distIndex)) {
-      response.sendFile(distIndex)
-      return
-    }
-
-    next()
-  })
-}
 
 app.use((error, _request, response, next) => {
   void next

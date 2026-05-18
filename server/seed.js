@@ -124,6 +124,36 @@ async function syncSequences(client) {
   `)
 }
 
+async function rebuildPlaceMetrics(client) {
+  await client.query(`
+    INSERT INTO place_metrics (
+      place_id,
+      avg_speed_rating,
+      avg_comfort_rating,
+      avg_rating,
+      review_count,
+      updated_at
+    )
+    SELECT
+      p.id AS place_id,
+      COALESCE(AVG(r.rating_speed), 0)::numeric(10, 2) AS avg_speed_rating,
+      COALESCE(AVG(r.rating_comfort), 0)::numeric(10, 2) AS avg_comfort_rating,
+      COALESCE(AVG((r.rating_speed + r.rating_comfort) / 2.0), 0)::numeric(10, 2) AS avg_rating,
+      COUNT(r.id)::int AS review_count,
+      NOW() AS updated_at
+    FROM places p
+    LEFT JOIN reviews r ON r.place_id = p.id
+    GROUP BY p.id
+    ON CONFLICT (place_id) DO UPDATE
+    SET
+      avg_speed_rating = EXCLUDED.avg_speed_rating,
+      avg_comfort_rating = EXCLUDED.avg_comfort_rating,
+      avg_rating = EXCLUDED.avg_rating,
+      review_count = EXCLUDED.review_count,
+      updated_at = NOW();
+  `)
+}
+
 async function main() {
   const client = await pool.connect()
 
@@ -134,6 +164,7 @@ async function main() {
     await seedPlacesTable(client)
     await seedReviewsTable(client)
     await syncSequences(client)
+    await rebuildPlaceMetrics(client)
 
     const summary = await client.query(`
       SELECT
